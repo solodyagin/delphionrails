@@ -423,24 +423,37 @@ begin
 end;
 
 function THTTPStub.DecodeContent: boolean;
+const
+  BLOCK_SIZE = 8*1024;
 var
   ContentLength: integer;
-  len: Integer;
-  b: Byte;
+  len, total: Integer;
+  b: array[0..BLOCK_SIZE] of Byte;
+
+  function max_block_size(total: Integer): Integer; inline;
+  begin
+    if total < BLOCK_SIZE then
+      Result := total
+    else
+      Result := BLOCK_SIZE;
+  end;
+
 begin
+  Result := True;
   ContentLength := Request.I['env.content-length'];
   if ContentLength > 0 then
-  with Request.FContent do
   begin
-    Size := ContentLength;
-    Seek(0, soFromBeginning);
-    for len := 1 to ContentLength do
-    begin
-      Source.Read(b, 1, ReadTimeOut);
-      Write(b, 1);
-    end;
+    Request.FContent.Size := ContentLength;
+    Request.FContent.Seek(0, soFromBeginning);
+    total := ContentLength;
+    repeat
+      len := Source.Read(b[0], max_block_size(total), ReadTimeOut);
+      if len > 0 then
+        Request.FContent.Write(b[0], len);
+      Dec(total, len);
+    until (total = 0) or (len <= 0);
+    Result := total = 0;
   end;
-  Result := True;
 end;
 
 function THTTPStub.DecodeCommand(str: PChar): boolean;
@@ -751,6 +764,10 @@ var
   r: integer;
 {$ENDIF}
 begin
+{$if defined(DEBUG)}
+  TThread.NameThreadForDebugging(AnsiString(Self.ClassName));
+{$ifend}
+
   result := 0;
   cursor := 0;
   len := 0;
@@ -860,32 +877,100 @@ begin
   FResponse := THTTPMessage.Create;
   FResponse._AddRef;
 
-
   FContext := TSuperRttiContext.Create;
+
+  { Cf. https://developer.mozilla.org/fr/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Complete_list_of_MIME_types }
 
   FFormats := TSuperObject.Create;
   with FFormats do
   begin
-    S['htm.content'] := 'text/html';
-    S['htm.charset'] := DEFAULT_CHARSET;
-    B['htm.istext'] := True;
-    S['html.content'] := 'text/html';
-    S['html.charset'] := DEFAULT_CHARSET;
-    B['html.istext'] := True;
-    S['xml.content'] := 'text/xml';
-    B['xml.istext'] := True;
-    S['json.content'] := 'text/json';
-    B['json.istext'] := True;
-    S['png.content'] := 'image/png';
-    S['jpeg.content'] := 'image/jpeg';
-    S['jpg.content'] := 'image/jpeg';
-    S['gif.content'] := 'image/gif';
-    S['css.content'] := 'text/css';
-    B['css.istext'] := True;
-    S['js.content'] := 'text/javascript';
-    B['js.istext'] := True;
-    S['svg.content'] := 'image/svg+xml';
-    B['svg.istext'] := True;
+    S['aac.content']   := 'audio/aac';
+    S['wav.content']   := 'audio/x-wav';
+    S['oga.content']   := 'audio/ogg';
+    S['weba.content']  := 'audio/webm';
+
+    S['avi.content']   := 'video/ms-video';
+    S['ogv.content']   := 'video/ogg';
+    S['mpeg.content']  := 'video/mpeg';
+    S['webm.content']  := 'video/webm';
+
+    S['bz.content']    := 'application/x-bzip';
+    S['bz2.content']   := 'application/x-bzip2';
+    S['rar.content']   := 'application/x-rar-compressed';
+    S['tar.content']   := 'application/x-tar';
+    S['zip.content']   := 'application/zip';
+    S['7z.content']    := 'application/x-7z-compressed';
+
+    S['pdf.content']   := 'application/pdf';
+    S['ogx.content']   := 'application/ogg';
+    S['doc.content']   := 'application/msword';
+    S['docx.content']  := 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    S['ppt.content']   := 'application/vnd.ms-powerpoint';
+    S['pptx.content']  := 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    S['xls.content']   := 'application/vnd.ms-excel';
+    S['xlsx.content']  := 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    S['epub.content']  := 'application/epub+zip';
+    S['jar.content']   := 'application/java-archive';
+    S['odp.content']   := 'application/vnd.oasis.opendocument.presentation';
+    S['ods.content']   := 'application/vnd.oasis.opendocument.spreadsheet';
+    S['odt.content']   := 'application/vnd.oasis.opendocument.text';
+
+    S['eot.content']   := 'application/vnd.ms-fontobject';
+    S['otf.content']   := 'font/otf';
+    S['ttf.content']   := 'font/ttf';
+    S['woff.content']  := 'font/woff';
+    S['woff2.content'] := 'font/woff2';
+
+    S['csv.content']   := 'text/csv';
+    S['csv.charset']   := DEFAULT_CHARSET;
+    B['csv.istext']    := True;
+
+    S['rtf.content']   := 'application/rtf';
+    S['rtf.charset']   := DEFAULT_CHARSET;
+    B['rtf.istext']    := True;
+
+    S['htm.content']   := 'text/html';
+    S['htm.charset']   := DEFAULT_CHARSET;
+    B['htm.istext']    := True;
+
+    S['html.content']  := 'text/html';
+    S['html.charset']  := DEFAULT_CHARSET;
+    B['html.istext']   := True;
+
+    S['xhtml.content'] := 'application/xhtml+xml';
+    S['xhtml.charset'] := DEFAULT_CHARSET;
+    B['xhtml.istext']  := True;
+
+    S['xml.content']   := 'application/xml';
+    B['xml.istext']    := True;
+
+    S['xml.content']   := 'text/calendar';
+    B['xml.istext']    := True;
+
+    S['json.content']  := 'application/json';
+    B['json.istext']   := True;
+
+    S['png.content']   := 'image/png';
+    S['jpeg.content']  := 'image/jpeg';
+    S['jpg.content']   := 'image/jpeg';
+    S['gif.content']   := 'image/gif';
+    S['ico.content']   := 'image/x-icon';
+    S['tif.content']   := 'image/tiff';
+    S['tiff.content']  := 'image/tiff';
+    S['webp.content']  := 'image/webp';
+
+    S['css.content']   := 'text/css';
+    B['css.istext']    := True;
+
+    S['js.content']    := 'application/javascript';
+    B['js.istext']     := True;
+
+    S['ts.content']    := 'application/typescript';
+    B['ts.istext']     := True;
+
+    S['svg.content']   := 'image/svg+xml';
+    B['svg.istext']    := True;
   end;
 end;
 
@@ -931,13 +1016,14 @@ begin
       WriteLine(RawByteString(ite.key + ': ' + ite.val.AsString));
     end;
 
-
   until not ObjectFindNext(ite);
   ObjectFindClose(ite);
 
   if FSendFile <> '' then
     SendFile(FSendFile) else
     SendStream(Response.Content);
+
+  Source.Flush;
 
   FReturn.Clear(true);
   FParams.Clear(true);
@@ -983,6 +1069,10 @@ begin
 
   with Request.AsObject do
   begin
+    S['remote-ip'] := string(Source.ClientIP);
+  { for reverse proxies... cf. https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Forwarded-For
+    O['x-forwarded-for'] := HTTPInterprete(PSOChar(Request.S['env.x-forwarded-for']), false, ',');
+    O['forwarded'] := HTTPInterprete(PSOChar(Request.S['env.forwarded']), true); }
     O['cookies'] := HTTPInterprete(PSOChar(Request.S['env.cookie']), true);
     O['content-type'] := HTTPInterprete(PSOChar(Request.S['env.content-type']), false, ';');
     O['accept'] := HTTPInterprete(PSOChar(Request.S['env.accept']), false, ',');
@@ -1543,6 +1633,7 @@ function THTTPStub.Upgrade: Cardinal;
       WriteLine('Sec-WebSocket-Protocol: ' + RawByteString(protocol.asstring));
     WriteLine('');
     Source.Write(response, SizeOf(response), 0);
+    Source.Flush;
     Result := WebSocket;
   end;
 
@@ -1573,6 +1664,7 @@ function THTTPStub.Upgrade: Cardinal;
 	  WriteLine('Sec-WebSocket-Origin: ' + RawByteString(origin.AsString));
     WriteLine('Sec-WebSocket-Accept: ' + ret);
     WriteLine('');
+    Source.Flush;
     Result := WebSocket;
   end;
 begin

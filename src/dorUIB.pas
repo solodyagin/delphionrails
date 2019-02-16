@@ -13,6 +13,7 @@ type
   TDBUIBConnectionPool = class(TInterfacedObject, IDBConnectionPool)
   private
     FCriticalSection: TCriticalSection;
+    FPoolName: string;
     FMax: Integer;
     FDatabase: string;
     FUserName: string;
@@ -27,7 +28,7 @@ type
     procedure Lock;
     procedure Unlock;
   public
-    constructor Create(Max: Integer; const Database, Username, Password: string;
+    constructor Create(const PoolName: string; Max: Integer; const Database, Username, Password: string;
       const Characterset: string = 'UTF8'; const Lib: string = ''); reintroduce;
     destructor Destroy; override;
   end;
@@ -54,6 +55,7 @@ type
   protected
     procedure ExecuteImmediate(const Options: SOString); override;
     function Query(const Sql: string; const Connection: IDBConnection = nil): IDBQuery; override;
+    procedure Rollback(value: boolean); override;
   public
     constructor Create(const Connections: array of TDBUIBConnection; const Options: ISuperObject); reintroduce;
     destructor Destroy; override;
@@ -126,10 +128,13 @@ begin
   if database <> '' then
     FLibrary.AttachDatabase(AnsiString(database), FDbHandle, AnsiString(option)) else
     FDbHandle := nil;
+
+  OutputDebugString(PChar(Format('TDBUIBConnection.Create(Database=%s): DbHandle=%p', [Database, FDBHandle])));
 end;
 
 destructor TDBUIBConnection.Destroy;
 begin
+  OutputDebugString(PChar(Format('TDBUIBConnection.Destroy DbHandle=%p', [FDBHandle])));
   if FDbHandle <> nil then
     FLibrary.DetachDatabase(FDbHandle);
   FLibrary.Free;
@@ -306,6 +311,11 @@ begin
     Result := TDBUIBQuery.Create(Connection, Self, Sql)
 end;
 
+procedure TDBUIBTransaction.Rollback(value: boolean);
+begin
+  FRollback := value;
+end;
+
 { TDBUIBQuery }
 
 constructor TDBUIBQuery.Create(const Connection: IDBConnection;
@@ -349,12 +359,12 @@ var
   ret: ISuperObject;
 begin
   Execute(Params,
-    procedure(const item: ISuperObject; isResult: boolean; affected: Integer)
+    procedure(const item: ISuperObject; const R: TExecuteResult)
     begin
-      if isResult then
+      if R.IsResult then
       begin
-        if affected >= 0 then
-          ret := TSuperObject.Create(affected)
+        if R.HasAffectedRows then
+          ret := TSuperObject.Create(Int64(R.Changed))
         else
           ret := item;
       end
@@ -482,6 +492,7 @@ var
     blob: IDBBlob;
     dt: TDateTime;
     i: Int64;
+    stream: TPooledMemoryStream;
   begin
     if ObjectIsType(value, stNull) then
       FSQLParams.IsNull[index] := true
@@ -539,8 +550,18 @@ var
             FSQLParams.AsQuad[Index] := BlobCreate(FDbHandle, FTrHandle, BlobHandle);
             if value.QueryInterface(IDBBlob, blob) = 0 then
               BlobWriteStream(BlobHandle, blob.getData)
+            else if FSQLParams.IsBlobText[Index] then
+              BlobWriteString(BlobHandle, MBUEncode(value.AsString, CharacterSetCP[FCharacterSet]))
             else
-              BlobWriteString(BlobHandle, MBUEncode(value.AsString, CharacterSetCP[FCharacterSet]));
+            begin
+              stream := TPooledMemoryStream.Create;
+              try
+                Base64ToStream(value.AsString, stream);
+                BlobWriteStream(BlobHandle, stream);
+              finally
+                stream.Free;
+              end;
+            end;
             BlobClose(BlobHandle);
           end;
 
@@ -555,7 +576,10 @@ var
   end;
 
   procedure Process;
+  var
+    result: TExecuteResult;
   begin
+    result := TExecuteResult.Create(False, False, 0, 0, 0, 0);
     with TDBUIBConnection(FConnection), FLibrary, TDBUIBTransaction(ctx) do
       if FSQLResult.FieldCount > 0 then
       begin
@@ -571,17 +595,26 @@ var
             DSQLExecute(FTrHandle, FStHandle, 3, FSQLParams);
 
           if NoCursor then
-            callback(getone, True, -1)
+          begin
+            result.IsResult := True;
+            callback(getone, result);
+          end
           else if not (qoSingleton in Options) then
           begin
-            callback(nil, false, -1); { prepare an empty result object, even if we fetch no data }
+            callback(nil, result); { prepare an empty result object, even if we fetch no data }
             while DSQLFetchWithBlobs(FDbHandle, FTrHandle, FStHandle, 3, FSQLResult) do
-              callback(getone, False, -1);
+              callback(getone, result);
           end
           else if DSQLFetchWithBlobs(FDbHandle, FTrHandle, FStHandle, 3, FSQLResult) then
-            callback(getone, True, -1)
+          begin
+            result.IsResult := True;
+            callback(getone, result)
+          end
           else
-            callback(nil, True, -1);
+          begin
+            result.IsResult := True;
+            callback(nil, result);
+          end;
         finally
           if not NoCursor then
             DSQLFreeStatement(FStHandle, DSQL_close);
@@ -590,7 +623,13 @@ var
       else
       begin
         DSQLExecute(FTrHandle, FStHandle, 3, FSQLParams);
-        callback(nil, True, DSQLInfoRowsAffected(FStHandle, FStatementType));
+
+        result.IsResult := True;
+        result.HasAffectedRows := True;
+        if FStatementType in [stUpdate, stDelete, stInsert, stExecProcedure] then
+          DSQLInfoRowsAffected2(FStHandle, result.Selected, result.Inserted, result.Updated, result.Deleted);
+
+        callback(nil, result);
       end;
   end;
 var
@@ -784,10 +823,13 @@ end;
 
 { TDBUIBConnectionPool }
 
-constructor TDBUIBConnectionPool.Create(max: Integer; const Database, Username,
-  Password: string; const Characterset: string = 'UTF8'; const Lib: string = '');
+constructor TDBUIBConnectionPool.Create(const PoolName: string; max: Integer;
+  const Database, Username, Password: string;
+  const Characterset: string = 'UTF8'; const Lib: string = '');
 begin
   inherited Create;
+  OutputDebugString(PChar(Format('TDBUIBConnectionPool.Create(PoolName=%s)', [PoolName])));
+  FPoolName := PoolName;
   FDatabase := Database;
   FUserName := Username;
   FPassword := Password;
@@ -802,6 +844,7 @@ procedure TDBUIBConnectionPool.ClearPool;
 begin
   Lock;
   try
+    OutputDebugString(PChar(Format('%s.ClearPool (FPool.Count=%d)', [FPoolName, FPool.Count])));
     FPool.Clear;
   finally
     Unlock;
@@ -810,8 +853,15 @@ end;
 
 destructor TDBUIBConnectionPool.Destroy;
 begin
+  Lock;
+  try
+    ClearPool;
+    FPool.Free;
+    OutputDebugString(PChar(Format('%s.Destroy', [FPoolName])));
+  finally
+    Unlock;
+  end;
   FCriticalSection.Free;
-  FPool.Free;
   inherited;
 end;
 
@@ -834,6 +884,7 @@ begin
           if k = 3 then
           begin
             Result := cnx;
+            OutputDebugString(PChar(Format('%s.Connection: DbHandle=%p', [FPoolName, TDBUIBConnection(Result).FDbHandle])));
             Exit;
           end;
         finally

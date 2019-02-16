@@ -79,7 +79,20 @@ type
     function Cell(const Sql: string; const Params: array of const): ISuperObject; overload;
   end;
 
-  TExecuteCallback = reference to procedure(const item: ISuperObject; isResult: boolean; affected: Integer);
+  TExecuteResult = record
+    IsResult: Boolean;
+    HasAffectedRows: Boolean;
+    Selected: Cardinal;
+    Inserted: Cardinal;
+    Updated: Cardinal;
+    Deleted: Cardinal;
+    function ItemResult: Boolean;
+    function Changed: Cardinal;
+    constructor Create(AIsResult, AHasAffectedRows: Boolean; ASelected, AInserted, AUpdated, ADeleted: Cardinal); overload;
+    constructor Create(AIsResult, AHasAffectedRows: Boolean); overload;
+  end;
+
+  TExecuteCallback = reference to procedure(const item: ISuperObject; const result: TExecuteResult);
 
   IDBTransaction = interface
   ['{51992399-2D1A-47EF-9DB1-C5654325F41B}']
@@ -128,6 +141,7 @@ type
     function Cell(const Sql: string; const Params: ISuperObject = nil): ISuperObject; overload;
     function Cell(const Sql: string; const Params: array of const): ISuperObject; overload;
 
+    procedure Rollback(value: boolean);
     procedure OnCommit(const proc: TProc);
     procedure OnRollback(const proc: TProc);
   end;
@@ -264,6 +278,7 @@ type
     function Cell(const Sql: string; const Params: ISuperObject = nil): ISuperObject; overload; virtual;
     function Cell(const Sql: string; const Params: array of const): ISuperObject; overload; virtual;
 
+    procedure Rollback(value: boolean); virtual; abstract;
     procedure OnCommit(const proc: TProc);
     procedure OnRollback(const proc: TProc);
   public
@@ -303,6 +318,7 @@ type
     FStream: TPooledMemoryStream;
   public
     constructor Create(stream: TStream = nil); reintroduce; overload;
+    constructor Create(const stream: IStreamPersist); reintroduce; overload;
     constructor Create(const filename: string); reintroduce; overload;
     constructor Create(buffer: Pointer; len: Integer); reintroduce; overload;
     constructor CreateFromBase64(const base64: string);
@@ -752,6 +768,14 @@ begin
     FStream.Write(buffer^, len);
 end;
 
+constructor TDBBinary.Create(const stream: IStreamPersist);
+begin
+  inherited Create('[BINARY]');
+  FStream := TPooledMemoryStream.Create;
+  if Stream <> nil then
+    stream.SaveToStream(FStream);
+end;
+
 constructor TDBBinary.CreateFromBase64(const base64: string);
 begin
   inherited Create('[BINARY]');
@@ -897,6 +921,39 @@ function TDBQuery.Table(const Params: ISuperObject;
   const Transaction: IDBTransaction): ISuperObject;
 begin
   Result := Execute(Params, [qoArray], Transaction);
+end;
+
+{ TExecuteResult }
+
+function TExecuteResult.Changed: Cardinal;
+begin
+  Result := Self.Inserted + Self.Updated + Self.Deleted;
+end;
+
+constructor TExecuteResult.Create(AIsResult, AHasAffectedRows: Boolean;
+  ASelected, AInserted, AUpdated, ADeleted: Cardinal);
+begin
+  Self.IsResult := AIsResult;
+  Self.HasAffectedRows := AHasAffectedRows;
+  Self.Selected := ASelected;
+  Self.Inserted := AInserted;
+  Self.Updated := AUpdated;
+  Self.Deleted := ADeleted;
+end;
+
+constructor TExecuteResult.Create(AIsResult, AHasAffectedRows: Boolean);
+begin
+  Self.IsResult := AIsResult;
+  Self.HasAffectedRows := AHasAffectedRows;
+  Self.Selected := 0;
+  Self.Inserted := 0;
+  Self.Updated := 0;
+  Self.Deleted := 0;
+end;
+
+function TExecuteResult.ItemResult: Boolean;
+begin
+  Result := (not IsResult) or (not HasAffectedRows)
 end;
 
 end.

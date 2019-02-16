@@ -1,7 +1,7 @@
 unit dorWebsocket;
 
 interface
-uses SysUtils, WinSock, Classes, SyncObjs, dorHTTP, dorOpenSSL;
+uses SysUtils, WinSock2, Classes, SyncObjs, dorHTTP, dorOpenSSL;
 
 type
   TWSMessage = reference to procedure(const msg: string);
@@ -49,6 +49,8 @@ type
 
   TWebSocket = class(TInterfacedObject, IWebSocket)
   private
+    const BUFFER_SIZE = 1024;
+  private
     FOnOpen: TProc;
     FOnClose: TProc;
     FOnError: TWSMessage;
@@ -68,10 +70,13 @@ type
     FCertificateFile: AnsiString;
     FPrivateKeyFile: AnsiString;
     FCertCAFile: AnsiString;
+    FBuffer: array[0..BUFFER_SIZE - 1] of Byte;
+    FBufferPos: Cardinal;
     procedure Listen;
     procedure HTTPWriteLine(const data: RawByteString);
     function SockSend(var Buf; len, flags: Integer): Integer;
     function SockRecv(var Buf; len, flags: Integer): Integer;
+    procedure Flush();
     procedure Output(b: Byte; data: Pointer; len: Int64);
     procedure OutputString(b: Byte; const str: string);
   protected
@@ -106,7 +111,8 @@ type
   end;
 
 implementation
-uses AnsiStrings, dorMD5, dorPunyCode, Generics.Collections, dorUtils;
+uses
+  Math, AnsiStrings, dorMD5, dorPunyCode, Generics.Collections, dorUtils;
 
 const
   // Non Control Frames
@@ -268,7 +274,7 @@ var
   ssl: Boolean;
   port: Word;
   host: PHostEnt;
-  addr: TSockAddrIn;
+  addr: TSockAddr;
   ReadTimeOut: Integer;
   dic: TDictionary<RawByteString, RawByteString>;
   value: RawByteString;
@@ -329,9 +335,9 @@ begin
 
     // connect
     FillChar(addr, SizeOf(addr), 0);
-    addr.sin_family := AF_INET;
-    addr.sin_port := htons(port);
-    addr.sin_addr.S_addr := PInteger(host.h_addr^)^;
+    PSockAddrIn(@addr).sin_family := AF_INET;
+    PSockAddrIn(@addr).sin_port := htons(port);
+    PSockAddrIn(@addr).sin_addr.S_addr := PInteger(host.h_addr^)^;
     if connect(FSocket, addr, SizeOf(addr)) <> 0 then
     begin
       if Assigned(FOnError) then
@@ -342,6 +348,9 @@ begin
     if ssl then
     begin
       FCtx := SSL_CTX_new(SSLv23_method);
+    {$IFDEF NO_SSLV3}
+      SSL_CTX_set_options(FCtx, SSL_OP_NO_SSLv3);
+    {$ENDIF}
       SSL_CTX_set_cipher_list(FCtx, 'DEFAULT');
 
       SSL_CTX_set_default_passwd_cb_userdata(FCtx, Self);
@@ -405,6 +414,7 @@ begin
         Result := True;
       end);
     HTTPWriteLine('');
+    Flush();
 
     dic := TDictionary<RawByteString, RawByteString>.Create;
     try
@@ -527,6 +537,7 @@ begin
       d := d xor g.D1;
       SockSend(d, len, 0);
     end;
+    Flush;
   finally
     FLockSend.Leave;
   end;
@@ -819,10 +830,30 @@ begin
 end;
 
 function TWebSocket.SockSend(var Buf; len, flags: Integer): Integer;
+var
+  l: Cardinal;
+  p: PByte;
 begin
-  if FSsl <> nil then
-    Result := SSL_write(FSsl, @Buf, len) else
-    Result := WinSock.send(FSocket, Buf, len, flags);
+  Result := len;
+
+  l := Min(len, BUFFER_SIZE - FBufferPos);
+  p := PByte(@buf);
+  while l > 0 do
+  begin
+    Move(p^, FBuffer[FBufferPos], l);
+    Dec(len, l);
+    Inc(p, l);
+    Inc(FBufferPos, l);
+
+    if FBufferPos = BUFFER_SIZE then
+    begin
+      if FSsl <> nil then
+        SSL_write(FSsl, @FBuffer, BUFFER_SIZE) else
+        WinSock2.send(FSocket, FBuffer, BUFFER_SIZE, 0);
+      FBufferPos := 0;
+    end;
+    l := Min(len, BUFFER_SIZE - FBufferPos);
+  end;
 end;
 
 function TWebSocket.SockRecv(var Buf; len, flags: Integer): Integer;
@@ -835,6 +866,18 @@ end;
 class destructor TWebSocket.Destroy;
 begin
   WSACleanup;
+end;
+
+procedure TWebSocket.Flush();
+begin
+  if FBufferPos > 0 then
+  begin
+    if FSsl <> nil then
+      SSL_write(FSsl, @FBuffer, FBufferPos)
+    else
+      WinSock2.send(FSocket, FBuffer, FBufferPos, 0);
+    FBufferPos := 0;
+  end;
 end;
 
 function TWebSocket.GetOnAddField: TOnHTTPAddField;
