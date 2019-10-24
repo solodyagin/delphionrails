@@ -159,195 +159,6 @@ procedure MD5_Transform(c: PMD5_CTX; b: PByte); cdecl; external LIBEAY;
 procedure AesEncryptStream(InStream, OutStream: TStream; const pass: PAnsiChar; bits: Integer);
 procedure AesDecryptStream(InStream, OutStream: TStream; const pass: PAnsiChar; bits: Integer);
 
-
-(*******************************************************************************
- * SSL
- ******************************************************************************)
-
-const
-  X509_FILETYPE_PEM	    = 1;
-  X509_FILETYPE_ASN1    = 2;
-  X509_FILETYPE_DEFAULT = 3;
-
-(* use either SSL_VERIFY_NONE or SSL_VERIFY_PEER, the last 2 options
- * are 'ored' with SSL_VERIFY_PEER if they are desired *)
-  SSL_VERIFY_NONE                 = $00;
-  SSL_VERIFY_PEER                 = $01;
-  SSL_VERIFY_FAIL_IF_NO_PEER_CERT = $02;
-  SSL_VERIFY_CLIENT_ONCE          = $04;
-
-  SSL_FILETYPE_ASN1 = X509_FILETYPE_ASN1;
-  SSL_FILETYPE_PEM  = X509_FILETYPE_PEM;
-
-  SSL_CTRL_OPTIONS = 32;
-  SSL_CTRL_CLEAR_OPTIONS      = 77;
-
-const
-  SSL_OP_MICROSOFT_SESS_ID_BUG            = $00000001;
-  SSL_OP_NETSCAPE_CHALLENGE_BUG           = $00000002;
-  {* Allow initial connection to servers that don't support RI *}
-  SSL_OP_LEGACY_SERVER_CONNECT            = $00000004;
-  SSL_OP_NETSCAPE_REUSE_CIPHER_CHANGE_BUG = $00000008;
-  SSL_OP_TLSEXT_PADDING                   = $00000010;
-  SSL_OP_MICROSOFT_BIG_SSLV3_BUFFER       = $00000020;
-  SSL_OP_SAFARI_ECDHE_ECDSA_BUG           = $00000040;
-  SSL_OP_SSLEAY_080_CLIENT_DH_BUG         = $00000080;
-  SSL_OP_TLS_D5_BUG                       = $00000100;
-  SSL_OP_TLS_BLOCK_PADDING_BUG            = $00000200;
-
-  { * Hasn't done anything since OpenSSL 0.9.7h, retained for compatibility * }
-  SSL_OP_MSIE_SSLV2_RSA_PADDING           = $0;
-  { * Refers to ancient SSLREF and SSLv2, retained for compatibility * }
-  SSL_OP_SSLREF2_REUSE_CERT_TYPE_BUG      = $0;
-
-{*
- * Disable SSL 3.0/TLS 1.0 CBC vulnerability workaround that was added in
- * OpenSSL 0.9.6d.  Usually (depending on the application protocol) the
- * workaround is not needed.  Unfortunately some broken SSL/TLS
- * implementations cannot handle it at all, which is why we include it in
- * SSL_OP_ALL.
- *}
-{* added in 0.9.6e *}
-  SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS      = $00000800;
-
-{*
- * SSL_OP_ALL: various bug workarounds that should be rather harmless.  This
- * used to be 0x000FFFFFL before 0.9.7.
- *}
-  SSL_OP_ALL                              = $80000BFF;
-
-{* DTLS options *}
-  SSL_OP_NO_QUERY_MTU                     = $00001000;
-{* Turn on Cookie Exchange (on relevant for servers) *}
-  SSL_OP_COOKIE_EXCHANGE                  = $00002000;
-{* Don't use RFC4507 ticket extension *}
-  SSL_OP_NO_TICKET                        = $00004000;
-{* Use Cisco's "speshul" version of DTLS_BAD_VER (as client)  *}
-  SSL_OP_CISCO_ANYCONNECT                 = $00008000;
-
-{* As server, disallow session resumption on renegotiation *}
-  SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION   = $00010000;
-{* Don't use compression even if supported *}
-  SSL_OP_NO_COMPRESSION                           = $00020000;
-{* Permit unsafe legacy renegotiation *}
-  SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION        = $00040000;
-{* If set, always create a new key when using tmp_ecdh parameters *}
-  SSL_OP_SINGLE_ECDH_USE                          = $00080000;
-{ * Does nothing: retained for compatibility *}
-  SSL_OP_SINGLE_DH_USE                            = $00100000;
-{ * Does nothing: retained for compatibiity *}
-  SSL_OP_EPHEMERAL_RSA                            = $0;
-{*
- * Set on servers to choose the cipher according to the server's preferences
- *}
-  SSL_OP_CIPHER_SERVER_PREFERENCE                 = $00400000;
-{*
- * If set, a server will allow a client to issue a SSLv3.0 version number as
- * latest version supported in the premaster secret, even when TLSv1.0
- * (version 3.1) was announced in the client hello. Normally this is
- * forbidden to prevent version rollback attacks.
- *}
-  SSL_OP_TLS_ROLLBACK_BUG                         = $00800000;
-
-  SSL_OP_NO_SSLv2                                 = $01000000;
-  SSL_OP_NO_SSLv3                                 = $02000000;
-  SSL_OP_NO_TLSv1                                 = $04000000;
-  SSL_OP_NO_TLSv1_2                               = $08000000;
-  SSL_OP_NO_TLSv1_1                               = $10000000;
-
-  SSL_OP_NO_DTLSv1                                = $04000000;
-  SSL_OP_NO_DTLSv1_2                              = $08000000;
-
-  SSL_OP_NO_SSL_MASK = SSL_OP_NO_SSLv2 + SSL_OP_NO_SSLv3
-                     + SSL_OP_NO_TLSv1 + SSL_OP_NO_TLSv1_1 + SSL_OP_NO_TLSv1_2;
-
-{*
- * These next two were never actually used for anything since SSLeay zap so
- * we have some more flags.
- *}
-{*
- * The next flag deliberately changes the ciphertest, this is a check for the
- * PKCS#1 attack
- *}
-  SSL_OP_PKCS1_CHECK_1                            = $0;
-  SSL_OP_PKCS1_CHECK_2                            = $0;
-
-  SSL_OP_NETSCAPE_CA_DN_BUG                       = $20000000;
-  SSL_OP_NETSCAPE_DEMO_CIPHER_CHANGE_BUG          = $40000000;
-{*
- * Make server add server-hello extension from early version of cryptopro
- * draft, when GOST ciphersuite is negotiated. Required for interoperability
- * with CryptoPro CSP 3.x
- *}
-  SSL_OP_CRYPTOPRO_TLSEXT_BUG                     = $80000000;
-
-type
-  PSSL = Pointer;
-  PSSL_CTX = Pointer;
-  PSSL_METHOD = Pointer;
-
-  PX509 = Pointer;
-  PPX509 = ^PX509;
-
-  PX509_REQ = Pointer;
-  PPX509_REQ = ^PX509_REQ;
-
-  PX509_CRL = Pointer;
-  PPX509_CRL = ^PX509_CRL;
-
-  PX509_NAME = Pointer;
-
-  PPKCS7 = Pointer;
-  PPPKCS7 = ^PPKCS7;
-
-  function SSL_library_init: Integer; cdecl; external SSLEAY;
-  function SSL_CTX_set_cipher_list(arg0: PSSL_CTX; str: PAnsiChar): Integer; cdecl; external SSLEAY;
-  function SSL_CTX_new(meth: PSSL_METHOD): PSSL_CTX; cdecl; external SSLEAY;
-  procedure SSL_CTX_free(arg0: PSSL_CTX); cdecl; external SSLEAY;
-  function SSL_set_fd(s: PSSL; fd: Longint): Integer; cdecl; external SSLEAY;
-
-  { General-purpose version-flexible SSL/TLS methods for OpenSSL 1.0.x }
-  function SSLv23_method: PSSL_METHOD; cdecl; external SSLEAY;
-
-  { General-purpose version-flexible SSL/TLS methods for OpenSSL 1.1.x }
-//  function TLS_method: PSSL_METHOD; cdecl; external SSLEAY;
-
-  function SSL_CTX_ctrl(ctx: PSSL_CTX; cmd: Integer; larg: LongInt; parg: Pointer): LongInt; cdecl; external SSLEAY;
-
-  function SSL_CTX_use_RSAPrivateKey_file(ctx: PSSL_CTX; const filename: PAnsiChar; typ: Integer):Integer; cdecl; external SSLEAY;
-  function SSL_CTX_use_certificate_file(ctx: PSSL_CTX; const filename: PAnsiChar; typ: Integer):Integer; cdecl; external SSLEAY;
-  function SSL_CTX_use_certificate_chain_file(ctx: PSSL_CTX; const _file: PAnsiChar):Integer; cdecl; external SSLEAY;
-  procedure SSL_CTX_set_default_passwd_cb(ctx: PSSL_CTX; cb: Pointer); cdecl; external SSLEAY;
-  procedure SSL_CTX_set_default_passwd_cb_userdata(ctx: PSSL_CTX; u: Pointer); cdecl; external SSLEAY;
-  function SSL_CTX_load_verify_locations(ctx: PSSL_CTX; const CAfile: PAnsiChar; const CApath: PAnsiChar):Integer; cdecl; external SSLEAY;
-  procedure SSL_CTX_set_cert_verify_callback(ctx: PSSL_CTX; cb: Pointer; arg: Pointer); cdecl; external SSLEAY;
-  function SSL_new(ctx: PSSL_CTX):PSSL; cdecl; external SSLEAY;
-  procedure SSL_free(ssl: PSSL); cdecl; external SSLEAY;
-  function SSL_connect(ssl: PSSL):Integer; cdecl; external SSLEAY;
-  function SSL_accept(ssl: PSSL):Integer; cdecl; external SSLEAY;
-  function SSL_shutdown(ssl: PSSL):Integer; cdecl; external SSLEAY;
-  function SSL_read(ssl: PSSL; buf: Pointer; num: Integer): Integer; cdecl; external SSLEAY;
-  function SSL_write(ssl: PSSL; const buf: Pointer; num: Integer): Integer; cdecl; external SSLEAY;
-  procedure SSL_CTX_set_verify(ctx: PSSL_CTX; mode: Integer; arg2: Pointer); cdecl; external SSLEAY;
-
-  function SSL_get_peer_certificate(ssl: PSSL): PX509; cdecl; external SSLEAY;
-  procedure X509_free(x509: PX509); cdecl; external LIBEAY;
-  function X509_NAME_oneline(name: PX509_NAME; buf: PAnsiChar; size: Integer): PAnsiChar; cdecl; external LIBEAY;
-  function X509_get_subject_name(x509: PX509): PX509_NAME; cdecl; external LIBEAY;
-  function X509_get_issuer_name(x509: PX509): PX509_NAME; cdecl; external LIBEAY;
-
-  function SSL_CTX_set_options(ctx: PSSL_CTX; op: LongInt): LongInt;
-  function SSL_CTX_clear_options(ctx: PSSL_CTX; op: LongInt): LongInt;
-  function SSL_CTX_get_options(ctx: PSSL_CTX): LongInt;
-
-type
-  TOnX509KeyValue = reference to function(const key, value: AnsiString): Boolean;
-
-  function X509NameOneline(const name: PX509_NAME): AnsiString;
-  function X509NameParse(const name: PX509_NAME; const onkey: TOnX509KeyValue): Boolean;
-  function X509NameFind(const name: PX509_NAME; const key: AnsiString): AnsiString;
-
-
 const
   SHA_LBLOCK = 16;
   SHA_CBLOCK = SHA_LBLOCK * 4; (* SHA treats input data as a
@@ -986,7 +797,8 @@ function BIO_push(b: PBIO; append: PBIO): PBIO; cdecl; external LIBEAY;
 function BIO_write(b: PBIO; const data: Pointer; len: Integer): Integer; cdecl; external LIBEAY;
 function BIO_read(b: PBIO; data: Pointer; len: Integer): Integer; cdecl; external LIBEAY;
 function BIO_ctrl(bp: PBIO; cmd: Integer; larg: Longint; parg: Pointer): LongInt; cdecl; external LIBEAY;
-procedure	BIO_free_all(a: PBIO); cdecl; external LIBEAY;
+procedure BIO_free(a: PBIO); cdecl; external LIBEAY;
+procedure BIO_free_all(a: PBIO); cdecl; external LIBEAY;
 
 function BIO_flush(b: PBIO): Integer; inline;
 function BIO_get_mem_ptr(b: PBIO; ptr: Pointer): LongInt; inline;
@@ -1023,6 +835,411 @@ function BIO_set_md(b: PBIO; md: PEVP_MD): LongInt;
 function BIO_get_md(b: PBIO; md: PPEVP_MD): LongInt;
 function BIO_get_md_ctx(b: PBIO; ctx: PPEVP_MD_CTX): LongInt;
 function BIO_set_md_ctx(b: PBIO; ctx: PEVP_MD_CTX): LongInt;
+
+function BIO_get_close(b: PBIO): LongInt;
+function BIO_set_close(b: PBIO; flags: LongInt): Integer;
+
+(*******************************************************************************
+ * SSL
+ ******************************************************************************)
+
+const
+  X509_FILETYPE_PEM	    = 1;
+  X509_FILETYPE_ASN1    = 2;
+  X509_FILETYPE_DEFAULT = 3;
+
+(* use either SSL_VERIFY_NONE or SSL_VERIFY_PEER, the last 2 options
+ * are 'ored' with SSL_VERIFY_PEER if they are desired *)
+  SSL_VERIFY_NONE                 = $00;
+  SSL_VERIFY_PEER                 = $01;
+  SSL_VERIFY_FAIL_IF_NO_PEER_CERT = $02;
+  SSL_VERIFY_CLIENT_ONCE          = $04;
+
+  SSL_FILETYPE_ASN1 = X509_FILETYPE_ASN1;
+  SSL_FILETYPE_PEM  = X509_FILETYPE_PEM;
+
+  SSL_CTRL_SET_TMP_DH                      = 3;
+  SSL_CTRL_SET_TMP_ECDH                    = 4;
+  SSL_CTRL_SET_TMP_DH_CB                   = 6;
+  SSL_CTRL_GET_CLIENT_CERT_REQUEST         = 9;
+  SSL_CTRL_GET_NUM_RENEGOTIATIONS          = 10;
+  SSL_CTRL_CLEAR_NUM_RENEGOTIATIONS        = 11;
+  SSL_CTRL_GET_TOTAL_RENEGOTIATIONS        = 12;
+  SSL_CTRL_GET_FLAGS                       = 13;
+  SSL_CTRL_EXTRA_CHAIN_CERT                = 14;
+  SSL_CTRL_SET_MSG_CALLBACK                = 15;
+  SSL_CTRL_SET_MSG_CALLBACK_ARG            = 16;
+(* only applies to datagram connections *)
+  SSL_CTRL_SET_MTU                         = 17;
+(* Stats *)
+  SSL_CTRL_SESS_NUMBER                     = 20;
+  SSL_CTRL_SESS_CONNECT                    = 21;
+  SSL_CTRL_SESS_CONNECT_GOOD               = 22;
+  SSL_CTRL_SESS_CONNECT_RENEGOTIATE        = 23;
+  SSL_CTRL_SESS_ACCEPT                     = 24;
+  SSL_CTRL_SESS_ACCEPT_GOOD                = 25;
+  SSL_CTRL_SESS_ACCEPT_RENEGOTIATE         = 26;
+  SSL_CTRL_SESS_HIT                        = 27;
+  SSL_CTRL_SESS_CB_HIT                     = 28;
+  SSL_CTRL_SESS_MISSES                     = 29;
+  SSL_CTRL_SESS_TIMEOUTS                   = 30;
+  SSL_CTRL_SESS_CACHE_FULL                 = 31;
+  SSL_CTRL_OPTIONS                         = 32;
+  SSL_CTRL_MODE                            = 33;
+  SSL_CTRL_GET_READ_AHEAD                  = 40;
+  SSL_CTRL_SET_READ_AHEAD                  = 41;
+  SSL_CTRL_SET_SESS_CACHE_SIZE             = 42;
+  SSL_CTRL_GET_SESS_CACHE_SIZE             = 43;
+  SSL_CTRL_SET_SESS_CACHE_MODE             = 44;
+  SSL_CTRL_GET_SESS_CACHE_MODE             = 45;
+  SSL_CTRL_GET_MAX_CERT_LIST               = 50;
+  SSL_CTRL_SET_MAX_CERT_LIST               = 51;
+  SSL_CTRL_SET_MAX_SEND_FRAGMENT           = 52;
+(* see tls1.h for macros based on these *)
+  SSL_CTRL_SET_TLSEXT_SERVERNAME_CB        = 53;
+  SSL_CTRL_SET_TLSEXT_SERVERNAME_ARG       = 54;
+  SSL_CTRL_SET_TLSEXT_HOSTNAME             = 55;
+  SSL_CTRL_SET_TLSEXT_DEBUG_CB             = 56;
+  SSL_CTRL_SET_TLSEXT_DEBUG_ARG            = 57;
+  SSL_CTRL_GET_TLSEXT_TICKET_KEYS          = 58;
+  SSL_CTRL_SET_TLSEXT_TICKET_KEYS          = 59;
+(* SSL_CTRL_SET_TLSEXT_OPAQUE_PRF_INPUT        = 60; *)
+(* SSL_CTRL_SET_TLSEXT_OPAQUE_PRF_INPUT_CB     = 61; *)
+(* SSL_CTRL_SET_TLSEXT_OPAQUE_PRF_INPUT_CB_ARG = 62; *)
+  SSL_CTRL_SET_TLSEXT_STATUS_REQ_CB        = 63;
+  SSL_CTRL_SET_TLSEXT_STATUS_REQ_CB_ARG    = 64;
+  SSL_CTRL_SET_TLSEXT_STATUS_REQ_TYPE      = 65;
+  SSL_CTRL_GET_TLSEXT_STATUS_REQ_EXTS      = 66;
+  SSL_CTRL_SET_TLSEXT_STATUS_REQ_EXTS      = 67;
+  SSL_CTRL_GET_TLSEXT_STATUS_REQ_IDS       = 68;
+  SSL_CTRL_SET_TLSEXT_STATUS_REQ_IDS       = 69;
+  SSL_CTRL_GET_TLSEXT_STATUS_REQ_OCSP_RESP = 70;
+  SSL_CTRL_SET_TLSEXT_STATUS_REQ_OCSP_RESP = 71;
+  SSL_CTRL_SET_TLSEXT_TICKET_KEY_CB        = 72;
+  SSL_CTRL_SET_TLS_EXT_SRP_USERNAME_CB     = 75;
+  SSL_CTRL_SET_SRP_VERIFY_PARAM_CB         = 76;
+  SSL_CTRL_SET_SRP_GIVE_CLIENT_PWD_CB      = 77;
+  SSL_CTRL_SET_SRP_ARG                     = 78;
+  SSL_CTRL_SET_TLS_EXT_SRP_USERNAME        = 79;
+  SSL_CTRL_SET_TLS_EXT_SRP_STRENGTH        = 80;
+  SSL_CTRL_SET_TLS_EXT_SRP_PASSWORD        = 81;
+  DTLS_CTRL_GET_TIMEOUT                    = 73;
+  DTLS_CTRL_HANDLE_TIMEOUT                 = 74;
+  SSL_CTRL_GET_RI_SUPPORT                  = 76;
+  SSL_CTRL_CLEAR_OPTIONS                   = 77;
+  SSL_CTRL_CLEAR_MODE                      = 78;
+  SSL_CTRL_SET_NOT_RESUMABLE_SESS_CB       = 79;
+  SSL_CTRL_GET_EXTRA_CHAIN_CERTS           = 82;
+  SSL_CTRL_CLEAR_EXTRA_CHAIN_CERTS         = 83;
+  SSL_CTRL_CHAIN                           = 88;
+  SSL_CTRL_CHAIN_CERT                      = 89;
+  SSL_CTRL_GET_GROUPS                      = 90;
+  SSL_CTRL_SET_GROUPS                      = 91;
+  SSL_CTRL_SET_GROUPS_LIST                 = 92;
+  SSL_CTRL_GET_SHARED_GROUP                = 93;
+  SSL_CTRL_SET_SIGALGS                     = 97;
+  SSL_CTRL_SET_SIGALGS_LIST                = 98;
+  SSL_CTRL_CERT_FLAGS                      = 99;
+  SSL_CTRL_CLEAR_CERT_FLAGS                = 100;
+  SSL_CTRL_SET_CLIENT_SIGALGS              = 101;
+  SSL_CTRL_SET_CLIENT_SIGALGS_LIST         = 102;
+  SSL_CTRL_GET_CLIENT_CERT_TYPES           = 103;
+  SSL_CTRL_SET_CLIENT_CERT_TYPES           = 104;
+  SSL_CTRL_BUILD_CERT_CHAIN                = 105;
+  SSL_CTRL_SET_VERIFY_CERT_STORE           = 106;
+  SSL_CTRL_SET_CHAIN_CERT_STORE            = 107;
+  SSL_CTRL_GET_PEER_SIGNATURE_NID          = 108;
+  SSL_CTRL_GET_PEER_TMP_KEY                = 109;
+  SSL_CTRL_GET_RAW_CIPHERLIST              = 110;
+  SSL_CTRL_GET_EC_POINT_FORMATS            = 111;
+  SSL_CTRL_GET_CHAIN_CERTS                 = 115;
+  SSL_CTRL_SELECT_CURRENT_CERT             = 116;
+  SSL_CTRL_SET_CURRENT_CERT                = 117;
+  SSL_CTRL_SET_DH_AUTO                     = 118;
+  DTLS_CTRL_SET_LINK_MTU                   = 120;
+  DTLS_CTRL_GET_LINK_MIN_MTU               = 121;
+  SSL_CTRL_GET_EXTMS_SUPPORT               = 122;
+  SSL_CTRL_SET_MIN_PROTO_VERSION           = 123;
+  SSL_CTRL_SET_MAX_PROTO_VERSION           = 124;
+  SSL_CTRL_SET_SPLIT_SEND_FRAGMENT         = 125;
+  SSL_CTRL_SET_MAX_PIPELINES               = 126;
+  SSL_CTRL_GET_TLSEXT_STATUS_REQ_TYPE      = 127;
+  SSL_CTRL_GET_TLSEXT_STATUS_REQ_CB        = 128;
+  SSL_CTRL_GET_TLSEXT_STATUS_REQ_CB_ARG    = 129;
+  SSL_CTRL_GET_MIN_PROTO_VERSION           = 130;
+  SSL_CTRL_GET_MAX_PROTO_VERSION           = 131;
+  SSL_CTRL_GET_SIGNATURE_NID               = 132;
+  SSL_CTRL_GET_TMP_KEY                     = 133;
+  SSL_CERT_SET_FIRST                       = 1;
+  SSL_CERT_SET_NEXT                        = 2;
+  SSL_CERT_SET_SERVER                      = 3;
+
+const
+  SSL_OP_MICROSOFT_SESS_ID_BUG            = $00000001;
+  SSL_OP_NETSCAPE_CHALLENGE_BUG           = $00000002;
+  {* Allow initial connection to servers that don't support RI *}
+  SSL_OP_LEGACY_SERVER_CONNECT            = $00000004;
+  SSL_OP_NETSCAPE_REUSE_CIPHER_CHANGE_BUG = $00000008;
+  SSL_OP_TLSEXT_PADDING                   = $00000010;
+  SSL_OP_MICROSOFT_BIG_SSLV3_BUFFER       = $00000020;
+  SSL_OP_SAFARI_ECDHE_ECDSA_BUG           = $00000040;
+  SSL_OP_SSLEAY_080_CLIENT_DH_BUG         = $00000080;
+  SSL_OP_TLS_D5_BUG                       = $00000100;
+  SSL_OP_TLS_BLOCK_PADDING_BUG            = $00000200;
+
+  { * Hasn't done anything since OpenSSL 0.9.7h, retained for compatibility * }
+  SSL_OP_MSIE_SSLV2_RSA_PADDING           = $0;
+  { * Refers to ancient SSLREF and SSLv2, retained for compatibility * }
+  SSL_OP_SSLREF2_REUSE_CERT_TYPE_BUG      = $0;
+
+{*
+ * Disable SSL 3.0/TLS 1.0 CBC vulnerability workaround that was added in
+ * OpenSSL 0.9.6d.  Usually (depending on the application protocol) the
+ * workaround is not needed.  Unfortunately some broken SSL/TLS
+ * implementations cannot handle it at all, which is why we include it in
+ * SSL_OP_ALL.
+ *}
+{* added in 0.9.6e *}
+  SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS      = $00000800;
+
+{*
+ * SSL_OP_ALL: various bug workarounds that should be rather harmless.  This
+ * used to be 0x000FFFFFL before 0.9.7.
+ *}
+  SSL_OP_ALL                              = $80000BFF;
+
+{* DTLS options *}
+  SSL_OP_NO_QUERY_MTU                     = $00001000;
+{* Turn on Cookie Exchange (on relevant for servers) *}
+  SSL_OP_COOKIE_EXCHANGE                  = $00002000;
+{* Don't use RFC4507 ticket extension *}
+  SSL_OP_NO_TICKET                        = $00004000;
+{* Use Cisco's "speshul" version of DTLS_BAD_VER (as client)  *}
+  SSL_OP_CISCO_ANYCONNECT                 = $00008000;
+
+{* As server, disallow session resumption on renegotiation *}
+  SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION   = $00010000;
+{* Don't use compression even if supported *}
+  SSL_OP_NO_COMPRESSION                           = $00020000;
+{* Permit unsafe legacy renegotiation *}
+  SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION        = $00040000;
+{* If set, always create a new key when using tmp_ecdh parameters *}
+  SSL_OP_SINGLE_ECDH_USE                          = $00080000;
+{ * Does nothing: retained for compatibility *}
+  SSL_OP_SINGLE_DH_USE                            = $00100000;
+{ * Does nothing: retained for compatibiity *}
+  SSL_OP_EPHEMERAL_RSA                            = $0;
+{*
+ * Set on servers to choose the cipher according to the server's preferences
+ *}
+  SSL_OP_CIPHER_SERVER_PREFERENCE                 = $00400000;
+{*
+ * If set, a server will allow a client to issue a SSLv3.0 version number as
+ * latest version supported in the premaster secret, even when TLSv1.0
+ * (version 3.1) was announced in the client hello. Normally this is
+ * forbidden to prevent version rollback attacks.
+ *}
+  SSL_OP_TLS_ROLLBACK_BUG                         = $00800000;
+
+  SSL_OP_NO_SSLv2                                 = $01000000;
+  SSL_OP_NO_SSLv3                                 = $02000000;
+  SSL_OP_NO_TLSv1                                 = $04000000;
+  SSL_OP_NO_TLSv1_2                               = $08000000;
+  SSL_OP_NO_TLSv1_1                               = $10000000;
+
+  SSL_OP_NO_DTLSv1                                = $04000000;
+  SSL_OP_NO_DTLSv1_2                              = $08000000;
+
+  SSL_OP_NO_SSL_MASK = SSL_OP_NO_SSLv2 + SSL_OP_NO_SSLv3
+                     + SSL_OP_NO_TLSv1 + SSL_OP_NO_TLSv1_1 + SSL_OP_NO_TLSv1_2;
+
+{*
+ * These next two were never actually used for anything since SSLeay zap so
+ * we have some more flags.
+ *}
+{*
+ * The next flag deliberately changes the ciphertest, this is a check for the
+ * PKCS#1 attack
+ *}
+  SSL_OP_PKCS1_CHECK_1                            = $0;
+  SSL_OP_PKCS1_CHECK_2                            = $0;
+
+  SSL_OP_NETSCAPE_CA_DN_BUG                       = $20000000;
+  SSL_OP_NETSCAPE_DEMO_CIPHER_CHANGE_BUG          = $40000000;
+{*
+ * Make server add server-hello extension from early version of cryptopro
+ * draft, when GOST ciphersuite is negotiated. Required for interoperability
+ * with CryptoPro CSP 3.x
+ *}
+  SSL_OP_CRYPTOPRO_TLSEXT_BUG                     = $80000000;
+
+const
+  SSL_ERROR_NONE                  = 0;
+  SSL_ERROR_SSL                   = 1;
+  SSL_ERROR_WANT_READ             = 2;
+  SSL_ERROR_WANT_WRITE            = 3;
+  SSL_ERROR_WANT_X509_LOOKUP      = 4;
+  SSL_ERROR_SYSCALL               = 5; {* look at error stack/return
+                                        * value/errno *}
+  SSL_ERROR_ZERO_RETURN           = 6;
+  SSL_ERROR_WANT_CONNECT          = 7;
+  SSL_ERROR_WANT_ACCEPT           = 8;
+  SSL_ERROR_WANT_ASYNC            = 9;
+  SSL_ERROR_WANT_ASYNC_JOB        = 10;
+  SSL_ERROR_WANT_CLIENT_HELLO_CB  = 11;
+
+const
+  (*
+   * Allow SSL_write(..., n) to return r with 0 < r < n (i.e. report success
+   * when just a single record has been written):
+   *)
+  SSL_MODE_ENABLE_PARTIAL_WRITE = $00000001;
+  (*
+   * Make it possible to retry SSL_write() with changed buffer location (buffer
+   * contents must stay the same!); this is not the default to avoid the
+   * misconception that non-blocking SSL_write() behaves like non-blocking
+   * write():
+   *)
+  SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER = $00000002;
+  (*
+   * Never bother the application with retries if the transport is blocking:
+   *)
+  SSL_MODE_AUTO_RETRY = $00000004;
+  (*
+   * Don't attempt to automatically build certificate chain
+   *)
+  SSL_MODE_NO_AUTO_CHAIN = $00000008;
+  (*
+   * Save RAM by releasing read and write buffers when they're empty. (SSL3 and
+   * TLS only.) Released buffers are freed.
+   *)
+  SSL_MODE_RELEASE_BUFFERS = $00000010;
+  (*
+   * Send the current time in the Random fields of the ClientHello and
+   * ServerHello records for compatibility with hypothetical implementations
+   * that require it.
+   *)
+  SSL_MODE_SEND_CLIENTHELLO_TIME = $00000020;
+  SSL_MODE_SEND_SERVERHELLO_TIME = $00000040;
+  (*
+   * Send TLS_FALLBACK_SCSV in the ClientHello. To be set only by applications
+   * that reconnect with a downgraded protocol version; see
+   * draft-ietf-tls-downgrade-scsv-00 for details. DO NOT ENABLE THIS if your
+   * application attempts a normal handshake. Only use this in explicit
+   * fallback retries, following the guidance in
+   * draft-ietf-tls-downgrade-scsv-00.
+   *)
+  SSL_MODE_SEND_FALLBACK_SCSV = $00000080;
+  (*
+   * Support Asynchronous operation
+   *)
+  SSL_MODE_ASYNC = $00000100;
+  (*
+   * Don't use the kernel TLS data-path for sending.
+   *)
+  SSL_MODE_NO_KTLS_TX = $00000200;
+  (*
+   * When using DTLS/SCTP, include the terminating zero in the label
+   * used for computing the endpoint-pair shared secret. Required for
+   * interoperability with implementations having this bug like these
+   * older version of OpenSSL:
+   * - OpenSSL 1.0.0 series
+   * - OpenSSL 1.0.1 series
+   * - OpenSSL 1.0.2 series
+   * - OpenSSL 1.1.0 series
+   * - OpenSSL 1.1.1 and 1.1.1a
+   *)
+  SSL_MODE_DTLS_SCTP_LABEL_LENGTH_BUG = $00000400;
+  (*
+   * Don't use the kernel TLS data-path for receiving.
+   *)
+  SSL_MODE_NO_KTLS_RX = $00000800;
+
+type
+  PSSL = Pointer;
+  PSSL_CTX = Pointer;
+  PSSL_METHOD = Pointer;
+
+  PX509 = Pointer;
+  PPX509 = ^PX509;
+
+  PX509_REQ = Pointer;
+  PPX509_REQ = ^PX509_REQ;
+
+  PX509_CRL = Pointer;
+  PPX509_CRL = ^PX509_CRL;
+
+  PX509_NAME = Pointer;
+
+  PX509_STORE = Pointer;
+
+  PPKCS7 = Pointer;
+  PPPKCS7 = ^PPKCS7;
+
+  function SSL_library_init: Integer; cdecl; external SSLEAY;
+  function SSL_CTX_set_cipher_list(arg0: PSSL_CTX; str: PAnsiChar): Integer; cdecl; external SSLEAY;
+  function SSL_CTX_new(meth: PSSL_METHOD): PSSL_CTX; cdecl; external SSLEAY;
+  procedure SSL_CTX_free(arg0: PSSL_CTX); cdecl; external SSLEAY;
+  function SSL_set_fd(s: PSSL; fd: Longint): Integer; cdecl; external SSLEAY;
+
+  { General-purpose version-flexible SSL/TLS methods for OpenSSL 1.0.x }
+  function SSLv23_method: PSSL_METHOD; cdecl; external SSLEAY;
+  function SSLv23_server_method: PSSL_METHOD; cdecl; external SSLEAY;
+  function SSLv23_client_method: PSSL_METHOD; cdecl; external SSLEAY;
+
+  { General-purpose version-flexible SSL/TLS methods for OpenSSL 1.1.x }
+//  function TLS_method: PSSL_METHOD; cdecl; external SSLEAY;
+//  function TLS_server_method: PSSL_METHOD; cdecl; external SSLEAY;
+//  function TLS_client_method: PSSL_METHOD; cdecl; external SSLEAY;
+
+  function SSL_CTX_ctrl(ctx: PSSL_CTX; cmd: Integer; larg: LongInt; parg: Pointer): LongInt; cdecl; external SSLEAY;
+
+  function SSL_CTX_use_PrivateKey(ctx: PSSL_CTX; pkey: PEVP_PKEY):Integer; cdecl; external SSLEAY;
+  function SSL_CTX_use_RSAPrivateKey(ctx: PSSL_CTX; rsa: PRSA):Integer; cdecl; external SSLEAY;
+  function SSL_CTX_use_RSAPrivateKey_file(ctx: PSSL_CTX; const filename: PAnsiChar; typ: Integer):Integer; cdecl; external SSLEAY;
+  function SSL_CTX_use_certificate(ctx: PSSL_CTX; x: PX509):Integer; cdecl; external SSLEAY;
+  function SSL_CTX_use_certificate_file(ctx: PSSL_CTX; const filename: PAnsiChar; typ: Integer):Integer; cdecl; external SSLEAY;
+  function SSL_CTX_use_certificate_chain_file(ctx: PSSL_CTX; const _file: PAnsiChar):Integer; cdecl; external SSLEAY;
+  procedure SSL_CTX_set_default_passwd_cb(ctx: PSSL_CTX; cb: Pointer); cdecl; external SSLEAY;
+  procedure SSL_CTX_set_default_passwd_cb_userdata(ctx: PSSL_CTX; u: Pointer); cdecl; external SSLEAY;
+  function SSL_CTX_load_verify_locations(ctx: PSSL_CTX; const CAfile: PAnsiChar; const CApath: PAnsiChar):Integer; cdecl; external SSLEAY;
+  procedure SSL_CTX_set_cert_verify_callback(ctx: PSSL_CTX; cb: Pointer; arg: Pointer); cdecl; external SSLEAY;
+  function SSL_new(ctx: PSSL_CTX):PSSL; cdecl; external SSLEAY;
+  procedure SSL_free(ssl: PSSL); cdecl; external SSLEAY;
+  function SSL_connect(ssl: PSSL):Integer; cdecl; external SSLEAY;
+  function SSL_accept(ssl: PSSL):Integer; cdecl; external SSLEAY;
+  function SSL_shutdown(ssl: PSSL):Integer; cdecl; external SSLEAY;
+  function SSL_read(ssl: PSSL; buf: Pointer; num: Integer): Integer; cdecl; external SSLEAY;
+  function SSL_write(ssl: PSSL; const buf: Pointer; num: Integer): Integer; cdecl; external SSLEAY;
+  function SSL_get_error(ssl: PSSL; ret: Integer): Integer; cdecl; external SSLEAY;
+
+  function SSL_pending(const ssl: PSSL): Integer; cdecl; external SSLEAY;
+  function SSL_has_pending(const ssl: PSSL): Integer; cdecl; external SSLEAY;
+
+  procedure SSL_CTX_set_verify(ctx: PSSL_CTX; mode: Integer; arg2: Pointer); cdecl; external SSLEAY;
+
+  function SSL_get_peer_certificate(ssl: PSSL): PX509; cdecl; external SSLEAY;
+  procedure X509_free(x509: PX509); cdecl; external LIBEAY;
+  function X509_NAME_oneline(name: PX509_NAME; buf: PAnsiChar; size: Integer): PAnsiChar; cdecl; external LIBEAY;
+  function X509_get_subject_name(x509: PX509): PX509_NAME; cdecl; external LIBEAY;
+  function X509_get_issuer_name(x509: PX509): PX509_NAME; cdecl; external LIBEAY;
+
+  function SSL_CTX_set_options(ctx: PSSL_CTX; op: LongInt): LongInt;
+  function SSL_CTX_clear_options(ctx: PSSL_CTX; op: LongInt): LongInt;
+  function SSL_CTX_get_options(ctx: PSSL_CTX): LongInt;
+
+  function SSL_CTX_set_mode(ctx: PSSL_CTX; mode: LongInt): LongInt;
+  function SSL_CTX_get_mode(ctx: PSSL_CTX): LongInt;
+
+  procedure SSL_CTX_set_cert_store(ctx: PSSL_CTX; store: PX509_STORE); cdecl; external LIBEAY;
+  function X509_STORE_add_cert(ctx: PX509_STORE; x: PX509): Integer; cdecl; external SSLEAY;
+
+type
+  TOnX509KeyValue = reference to function(const key, value: AnsiString): Boolean;
+
+  function X509NameOneline(const name: PX509_NAME): AnsiString;
+  function X509NameParse(const name: PX509_NAME; const onkey: TOnX509KeyValue): Boolean;
+  function X509NameFind(const name: PX509_NAME; const key: AnsiString): AnsiString;
 
 (******************************************************************************
  * PEM
@@ -1196,6 +1413,16 @@ end;
 function SSL_CTX_get_options(ctx: PSSL_CTX): LongInt;
 begin
   Result := SSL_CTX_ctrl(ctx, SSL_CTRL_OPTIONS, 0, nil);
+end;
+
+function SSL_CTX_set_mode(ctx: PSSL_CTX; mode: LongInt): LongInt;
+begin
+  Result := SSL_CTX_ctrl(ctx, SSL_CTRL_MODE, mode, nil);
+end;
+
+function SSL_CTX_get_mode(ctx: PSSL_CTX): LongInt;
+begin
+  Result := SSL_CTX_ctrl(ctx, SSL_CTRL_MODE, 0, nil);
 end;
 
 procedure AesEncryptStream(InStream, OutStream: TStream; const pass: PAnsiChar; bits: Integer);
@@ -1471,6 +1698,16 @@ end;
 function BIO_set_md_ctx(b: PBIO; ctx: PEVP_MD_CTX): LongInt;
 begin
   Result := BIO_ctrl(b, BIO_C_SET_MD_CTX, 0, ctx);
+end;
+
+function BIO_get_close(b: PBIO): LongInt;
+begin
+  Result := BIO_ctrl(b, BIO_CTRL_GET_CLOSE, 0, nil);
+end;
+
+function BIO_set_close(b: PBIO; flags: LongInt): Integer;
+begin
+  Result := BIO_ctrl(b, BIO_CTRL_SET_CLOSE, flags, nil);
 end;
 
 initialization
